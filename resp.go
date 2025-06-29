@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -59,7 +57,7 @@ func (r *Resp) readLine() (line []byte, n int, err error) {
 	return line[:len(line)-2], n, nil
 }
 
-func (r *Resp) readInteger() (x int64, n int, err error) {
+func (r *Resp) readInteger() (x int, n int, err error) {
 	line, n, err := r.readLine()
 	if err != nil {
 		return 0, 0, err
@@ -68,30 +66,67 @@ func (r *Resp) readInteger() (x int64, n int, err error) {
 	if err != nil {
 		return 0, n, err
 	}
-	return i64, n, nil
+	return int(i64), n, nil
 }
 
-func main() {
-	input := "$5\r\ngavin\r\n"
-	reader := bufio.NewReader(strings.NewReader(input))
+func (r *Resp) Read() (Value, error) {
+	_type, err := r.reader.ReadByte()
 
-	b, _ := reader.ReadByte()
-
-	if b != '$' {
-		fmt.Println("Invalid type, expecting bulk strings only")
-		os.Exit(1)
+	if err != nil {
+		return Value{}, err
 	}
 
-	size, _ := reader.ReadByte()
+	switch _type {
+	case ARRAY:
+		return r.readArray()
+	case BULK:
+		return r.readBulk()
+	default:
+		fmt.Printf("Unknown type: %v", string(_type))
+		return Value{}, nil
+	}
+}
 
-	strSize, _ := strconv.ParseInt(string(size), 10, 64)
+func (r *Resp) readArray() (Value, error) {
+	v := Value{}
+	v.typ = "array"
 
-	reader.ReadByte()
-	reader.ReadByte()
+	// read length of array
+	length, _, err := r.readInteger()
+	if err != nil {
+		return v, err
+	}
 
-	message := make([]byte, strSize)
-	reader.Read(message)
+	v.array = make([]Value, length)
+	for i := range length {
+		val, err := r.Read()
+		if err != nil {
+			return v, err
+		}
 
-	fmt.Println(string(message))
+		v.array[i] = val
+	}
 
+	return v, nil
+}
+
+func (r *Resp) readBulk() (Value, error) {
+	v := Value{}
+	v.typ = "bulk"
+
+	length, _, err := r.readInteger()
+	if err != nil {
+		return v, err
+	}
+
+	bulk := make([]byte, length)
+
+	r.reader.Read(bulk)
+
+	v.bulk = string(bulk)
+
+	// Read the CRLF
+	r.readLine()
+
+	return v, nil
 }
